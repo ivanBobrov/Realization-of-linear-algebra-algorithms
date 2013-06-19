@@ -1,96 +1,14 @@
 #include "mult.h"
 
 void printCudaInfo ( void );
-double cuda_get_norm ( vector * next, vector * prev );
+double cuda_get_norm ( float * next, float * prev, int size );
 float * packMatrixRowA ( csr_matrix * , int rowToPack );
 float * packVector ( vector * );
 float * packMatrixA ( csr_matrix * );
 vector * unpackVector ( float * input, int size );
 
-vector * cuda_jacobi_iteration ( csr_matrix * A, vector * f, vector * prev );
-double calculateNextComponentCuda ( csr_matrix * A, vector * f, vector * prev, int component );
- __global__ void matrVectMult( float * row, float * column, float * result, int size );
+float * cuda_jacobi_iteration ( float * A, float * f, float * prev, int size );
  __global__ void jacobiNextComponent ( float * matrix, float * f, float * prev, float * next, int size );
-
-//==========================================================
-//================= MPI CUDA Jacobi ========================
-//==========================================================
-
-// ================ Kernel =================================
- __global__ void matrVectMult( float * row, float * column, float * result, int size ) {
-
-	 if ( (threadIdx.x < size) && (threadIdx.y == 0) )
-		result[threadIdx.x] = row[threadIdx.x] * column[threadIdx.x];
-	
-}
-
-// ================ Kernel launch ==========================
-
-double calculateNextComponentCuda ( csr_matrix * A, vector * f, vector * prev, int component ) {
-	int size = f->N;
-
-	float * hostNextComponent = new float[size];
-	float * hostPackedMatrixRowA = packMatrixRowA( A, component );
-	float * hostPackedVectorPreviousValue = packVector(prev);
-
-	float * deviceNextComponent = NULL;
-	float * devicePackedMatrixRowA;
-	float * devicePackedVectorPreviousValue;
-
-	cudaMalloc( (void **)&devicePackedMatrixRowA, sizeof(float)*size );
-	cudaMalloc( (void **)&devicePackedVectorPreviousValue, sizeof(float)*size );
-	cudaMalloc( (void **)&deviceNextComponent, sizeof(float)*size );
-	 
-	cudaMemcpy( devicePackedMatrixRowA
-			  , hostPackedMatrixRowA
-			  , sizeof(float)*size
-			  , cudaMemcpyHostToDevice );
-	
-	cudaMemcpy( devicePackedVectorPreviousValue
-			  , hostPackedVectorPreviousValue
-			  , sizeof(float)*size
-			  , cudaMemcpyHostToDevice );
-
-	dim3 grid((size+255)/256, 1, 1);
-	dim3 threads(256, 1, 1);
-
-	matrVectMult<<<1, 100>>>( devicePackedMatrixRowA
-									 , devicePackedVectorPreviousValue
-									 , deviceNextComponent
-									 , size );
-	
-	cudaEvent_t syncEvent;
-
-	cudaEventCreate(&syncEvent);
-	cudaEventRecord(syncEvent, 0);
-	cudaEventSynchronize(syncEvent);
-
-	cudaMemcpy( hostNextComponent
-			  , deviceNextComponent
-			  , sizeof(float)*size
-			  , cudaMemcpyDeviceToHost );
-
-	
-	double result = (double)hostNextComponent[0];
-	
-#ifdef CUDA_VERBOSE
-	for ( int i = 0; i < size; i++ )
-		if ( (hostNextComponent[i] > 100) || (hostNextComponent[i] < 0) )  
-			printf("CUDA result: %f -- vs -- %f\n", hostNextComponent[i], hostPackedMatrixRowA[i]);
-	printf("=======================================\n");
-#endif
-
-	cudaEventDestroy(syncEvent);
-	cudaFree(deviceNextComponent);
-	cudaFree(devicePackedMatrixRowA);
-	cudaFree(devicePackedVectorPreviousValue);
-	
-	delete hostNextComponent;
-	delete hostPackedMatrixRowA;
-	delete hostPackedVectorPreviousValue;
-	
-	return result;
-}
 
 
 //==============================================================
@@ -128,9 +46,12 @@ __global__ void jacobiNextComponent ( float * matrix, float * f, float * prev, f
 
 //==============================================================
 //============= System solution ================================
-vector * cuda_jacobi_solve ( csr_matrix * A, vector * f, double eps) {
-	vector * prev = new vector(*f);
-	vector * next = new vector( f->N );
+vector * cuda_jacobi_solve ( float * A, float * f, int size, double eps) {
+	float * prev = new float[size];
+	float * next = NULL;
+	for ( int i = 0; i < size; i++ )
+		prev[i] = f[i];			// Затравка
+	
 	double norm = eps;
 
 #ifdef CUDA_INFO
@@ -138,32 +59,38 @@ vector * cuda_jacobi_solve ( csr_matrix * A, vector * f, double eps) {
 #endif
 
 	while ( norm >= eps ) {
+
+		if (next != NULL) {
+			delete next;
+			next = NULL;
+		}
 		
-		delete next;
-		next = cuda_jacobi_iteration( A, f, prev );
-		norm = cuda_get_norm (next, prev);
-		(*prev) = (*next);
+		next = cuda_jacobi_iteration( A, f, prev, size );
+		norm = cuda_get_norm (next, prev, size);
+		for ( int i = 0; i < size; i++ )
+			prev[i] = next[i];
 		
 		#ifdef CUDA_VERBOSE
 		printf( "norm = %f\n", norm );
 		#endif
 	}
 	
-	return prev;
+	vector * result = unpackVector(prev, size);
+	if (prev != NULL) delete[] prev;
+	prev = NULL;
+	if (next != NULL) delete[] next;
+	next = NULL;
+
+	return result;
 }
 
 //==============================================================
 //============ Single iteration ================================
-vector * cuda_jacobi_iteration ( csr_matrix * A, vector * f, vector * prev ) {
+float * cuda_jacobi_iteration ( float * A, float * f, float * prev, int size ) {
 #ifdef CUDA_VERBOSE
 	printf("CUDA iteration started\n");
 #endif
-
-	int size = f->N;
 	
-	//cudaDeviceProp devProp;
-	//cudaGetDeviceProperties ( &devProp, 0 );
-	//int maxThreadsPerBlock = devProp.maxThreadsPerBlock;
 	dim3 threads;
 	dim3 blocks;
 	
@@ -177,12 +104,12 @@ vector * cuda_jacobi_iteration ( csr_matrix * A, vector * f, vector * prev ) {
 #ifdef CUDA_VERBOSE
 	printf("registered threads : [ %d x %d ]\nregistered blocks  : [ %d x %d ]\n", threads.x, threads.y, blocks.x, blocks.y );
 #endif
-	//printf("Pack memory\n");
-	float * hostMatrixA = packMatrixA(A);
-	float * hostVectorF = packVector(f);
-	float * hostVectorPrev = packVector(prev);
+	
+	float * hostMatrixA = A;
+	float * hostVectorF = f;
+	float * hostVectorPrev = prev;
 	float * hostVectorNext = new float[size];
-	//printf("End pack\n");
+	
 	float * deviceMatrixA;
 	float * deviceVectorF;
 	float * deviceVectorPrev;
@@ -224,18 +151,11 @@ vector * cuda_jacobi_iteration ( csr_matrix * A, vector * f, vector * prev ) {
 			  , sizeof(float)*size
 			  , cudaMemcpyDeviceToHost );
 	
-	vector * next = unpackVector ( hostVectorNext, size );
-	
 #ifdef CUDA_DEBUG
 	for ( int i = 0; i < size; i++ )
-		printf("next[%d]: %f\n", i, (*next)[i]);
+		printf("next[%d]: %f\n", i, hostVectorNext[i]);
 #endif
 	
-	delete[] hostMatrixA;
-	delete[] hostVectorF;
-	delete[] hostVectorPrev;
-	delete[] hostVectorNext;
-
 	cudaFree(deviceMatrixA);
 	cudaFree(deviceVectorF);
 	cudaFree(deviceVectorPrev);
@@ -245,7 +165,7 @@ vector * cuda_jacobi_iteration ( csr_matrix * A, vector * f, vector * prev ) {
 	printf("CUDA iteration ended\n");
 #endif
 
-	return next;
+	return hostVectorNext;
 }
 
 //==============================================================
@@ -253,14 +173,14 @@ vector * cuda_jacobi_iteration ( csr_matrix * A, vector * f, vector * prev ) {
 //==============================================================
 
 //================ Norm of residual ============================
-double cuda_get_norm ( vector * next, vector * prev ) {
+double cuda_get_norm ( float * next, float * prev, int size ) {
 	// Считаем норму, как максимальную поэлементную разность
 	double result;
-	result = fabs ( (*prev)[0] - (*next)[0] );
+	result = fabs ( prev[0] - next[0] );
 	
-	for ( int i = 0; i < next->N; i++ ) {
-		if ( fabs ( (*prev)[i] - (*next)[i] ) > result )
-			result = fabs ( (*prev)[i] - (*next)[i] );
+	for ( int i = 0; i < size; i++ ) {
+		if ( fabs ( prev[i] - next[i] ) > result )
+			result = fabs ( prev[i] - next[i] );
 	}
 
 	return result;

@@ -6,6 +6,6 @@
 #include "vector.h"
 #include "define.h"
 
-vector * cuda_jacobi_solve ( csr_matrix *, vector *, double);
+vector * cuda_jacobi_solve ( float * matrix, float * vector, int size, double eps);
 
 #endif

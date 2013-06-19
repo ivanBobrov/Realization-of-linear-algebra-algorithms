@@ -9,9 +9,9 @@
 //#define VERBOSE
 //#define MPI_VERBOSE
 //#define CUDA_VERBOSE
-//#define CUDA_INFO
+#define CUDA_INFO
 //#define CUDA_DEBUG
-//#define PRINT_RESULT
+#define PRINT_RESULT
 
 #define GENERATE_MATRIX
 #define GENERATE_VECTOR

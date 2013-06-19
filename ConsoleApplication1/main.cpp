@@ -42,7 +42,7 @@ int main ( int argc, char * argv[] ) {
 	sendMatrixToAllProcesses(&A);
 	sendVectorToAllProcesses(&b);
 
-#elif defined(MAGMA)
+#elif defined(MAGMA) || defined(CUDA)
 		printf("Packing matrix...\n");
 		float * matrixForMagma = packMatrixToBLAS(A);
 		printf("done\nPacking vector...\n");
@@ -61,7 +61,7 @@ int main ( int argc, char * argv[] ) {
 	else
 		result = mpi_jacobi_solve( A, b, JACOBI_EPSILON, PROC_NUMBER, CURRENT_PROCESS );
 #elif defined(CUDA)
-		result = cuda_jacobi_solve( A, b, JACOBI_EPSILON );
+		result = cuda_jacobi_solve( matrixForMagma, vectorForMagma, DIMENSION, JACOBI_EPSILON );
 #elif defined(MAGMA)
 		result = magma_jacobi_solve( matrixForMagma, vectorForMagma, DIMENSION );
 #else
@@ -92,7 +92,7 @@ int main ( int argc, char * argv[] ) {
 //=============== Очищение памяти =====================
 //=====================================================
 
-#ifdef MAGMA
+#if defined(MAGMA) || defined(CUDA) 
 	deleteBlasMatrix(matrixForMagma );
 	deleteBlasVector(vectorForMagma);
 #endif

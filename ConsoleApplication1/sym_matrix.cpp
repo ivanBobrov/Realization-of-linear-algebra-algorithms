@@ -312,7 +312,10 @@ sym_matrix random_sym_matrix ( int dim, int max_num, double singul ) {
 	srand( time(NULL) );
 	for ( int i = 0; i < result.dim; i++)
 		for ( int j = i; j < result.dim; j++ ) {
-            result.element(i,j) = rand() % (2*max_num) - max_num;
+			if ( !(rand() % 50) )
+				result.element(i,j) = rand() % (2*max_num) - max_num;
+			else
+				result.element(i,j) = 0;
 			//result.element(i,j)*= normal_func(j-i,dim-1,(double)dim*1/singul);
 		}
 	
@@ -320,8 +323,10 @@ sym_matrix random_sym_matrix ( int dim, int max_num, double singul ) {
 		result.element(i,i) = module (result.element(i,i) );
 		for ( int j = 0; j < result.dim; j++ )
 			result.element(i,i) += module( result.element(i,j) );
+	if (!result.element(i,i))
+		result.element(i,i) = rand() % (2*max_num) - max_num;
 	}
-	
+
 	return result;
 }
 

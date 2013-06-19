@@ -42,7 +42,7 @@ float * packMatrixToBLAS ( csr_matrix * input ) {
 	
 	for ( int i = 0; i < row; i++ )
 		for ( int j = 0; j < col; j++ )
-			R[i*row + j] = (float)input->getElement(i,j);
+			R[i*col + j] = (float)input->getElement(i,j);
 	
 	return R;
 }
