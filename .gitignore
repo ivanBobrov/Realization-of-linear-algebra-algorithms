@@ -11,3 +11,15 @@
 *.lai
 *.la
 *.a
+
+# Compiled exe files
+*.exe
+
+#Visual studio files
+\debug
+*.sdf
+*.sln
+*.suo
+*.pdb
+*.vcxproj
+*.filters
